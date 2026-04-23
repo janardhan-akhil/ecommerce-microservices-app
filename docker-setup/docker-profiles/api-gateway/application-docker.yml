@@ -1,0 +1,53 @@
+server:
+  port: 8080
+
+spring:
+  main:
+    web-application-type: reactive
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST}
+      port: ${SPRING_DATA_REDIS_PORT}
+      timeout: 2000ms
+
+jwt:
+  secret: ${JWT_SECRET}
+  expiration-ms: 86400000
+
+gateway:
+  rate-limit-per-minute: 60
+
+  # Actuator is NOT listed here — it is handled directly in code (ProxyFilter
+  # skips it, AuthenticationFilter bypasses it). Listing it here is redundant
+  # and was causing confusion when the pattern didn't match exactly.
+  public-paths:
+    - /api/v1/users/login
+    - /api/v1/users/register
+    - /api/v1/products
+    - /api/v1/products/
+
+  routes:
+    - path: /api/v1/users
+      url: http://user-service:8081
+    - path: /api/v1/products
+      url: http://product-service:8082
+    - path: /api/v1/orders
+      url: http://order-service:8083
+    - path: /api/v1/cart
+      url: http://cart-service:8084
+    - path: /api/v1/payments
+      url: http://payment-service:8085
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    root: WARN
+    com.api_gateway: INFO

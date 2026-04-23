@@ -1,0 +1,57 @@
+spring:
+  application:
+    name: product-service
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/e-commerce_db
+    username: root
+    password: akhil
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 5MB
+      max-request-size: 5MB
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+  cache:
+    type: redis
+    redis:
+      time-to-live: 604800000
+
+server:
+  port: 8082
+
+eureka:
+  instance:
+    prefer-ip-address: true
+  client:
+    fetch-registry: true
+    registry-with-eureka: true
+    service-url:
+      defaultZone: http://localhost:8761/eureka
+
+product:
+  image:
+    path: D:\SpringBootProjects\ecommerce\product-service\images\products
+
+logging:
+  level:
+    root: INFO
+    com.ecommerce: DEBUG
+
+  file:
+    name: D:\SpringBootProjects\ecommerce\product-service\logs\product-service.log
+
+  pattern:
+    file: "%d{yyyy-MM-dd HH:mm:ss} %-5level %logger{36} - %msg%n"

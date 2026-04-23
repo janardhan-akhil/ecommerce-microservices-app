@@ -1,0 +1,350 @@
+
+
+# ─────────────────────────────────────────────────────────────────
+#  E-Commerce — Complete Docker Compose
+#
+#  Memory limits per container (total ~3.5 GB for all containers):
+#    mysql       512m
+#    redis       128m
+#    eureka      256m
+#    user        384m
+#    product     384m
+#    order       384m
+#    cart        320m
+#    payment     320m
+#    api-gateway 256m
+#
+#  Commands:
+#    Start:   docker-compose up --build -d
+#    Stop:    docker-compose down
+#    Logs:    docker-compose logs -f <service>
+#    Rebuild: docker-compose up --build -d <service>
+#    Reset:   docker-compose down -v  (deletes all data!)
+# ─────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Infrastructure ────────────────────────────────────────────────
+
+  mysql:
+    image: mysql:8.0
+    container_name: ecommerce-mysql
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./mysql-init:/docker-entrypoint-initdb.d:ro
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --innodb-buffer-pool-size=128M
+      --max-connections=50
+    networks:
+      - ecommerce-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1",
+             "-u", "root", "--password=${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  redis:
+    image: redis:7-alpine
+    container_name: ecommerce-redis
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+    command: redis-server --maxmemory 96mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - ecommerce-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  # ── Service Registry ──────────────────────────────────────────────
+
+  eureka-server:
+    build:
+      context: ../eureka-server
+      dockerfile: Dockerfile
+    image: ecommerce/eureka-server:latest
+    container_name: ecommerce-eureka
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    ports:
+      - "8761:8761"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    networks:
+      - ecommerce-net
+    healthcheck:
+      test: ["CMD-SHELL",
+             "wget -qO- http://localhost:8761/actuator/health | grep -q UP || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 50s
+
+  # ── Microservices ─────────────────────────────────────────────────
+
+  user-service:
+    build:
+      context: ../user-service
+      dockerfile: Dockerfile
+    image: ecommerce/user-service:latest
+    container_name: ecommerce-user
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 384m
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/user_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&createDatabaseIfNotExist=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+    networks:
+      - ecommerce-net
+    healthcheck:
+      test: ["CMD-SHELL",
+             "wget -qO- http://localhost:8081/actuator/health | grep -q UP || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 70s
+
+  product-service:
+    build:
+      context: ../product-service
+      dockerfile: Dockerfile
+    image: ecommerce/product-service:latest
+    container_name: ecommerce-product
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 384m
+    ports:
+      - "8082:8082"
+
+    volumes:
+      - ./images/products:/app/images/products
+
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/product_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&createDatabaseIfNotExist=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      SPRING_DATA_REDIS_HOST: ${REDIS_HOST}
+      SPRING_DATA_REDIS_PORT: ${REDIS_PORT}
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+    networks:
+      - ecommerce-net
+    healthcheck:
+      test: ["CMD-SHELL",
+             "wget -qO- http://localhost:8082/actuator/health | grep -q UP || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 70s
+
+  order-service:
+    build:
+      context: ../order-service
+      dockerfile: Dockerfile
+    image: ecommerce/order-service:latest
+    container_name: ecommerce-order
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 384m
+    ports:
+      - "8083:8083"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/order_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&createDatabaseIfNotExist=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+    depends_on:
+      mysql:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+      product-service:
+        condition: service_healthy
+    networks:
+      - ecommerce-net
+    healthcheck:
+      test: ["CMD-SHELL",
+             "wget -qO- http://localhost:8083/actuator/health | grep -q UP || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 70s
+
+  cart-service:
+    build:
+      context: ../cart-service
+      dockerfile: Dockerfile
+    image: ecommerce/cart-service:latest
+    container_name: ecommerce-cart
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 320m
+    ports:
+      - "8084:8084"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATA_REDIS_HOST: ${REDIS_HOST}
+      SPRING_DATA_REDIS_PORT: ${REDIS_PORT}
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      CART_TTL_SECONDS: 604800
+    depends_on:
+      redis:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+      product-service:
+        condition: service_healthy
+      order-service:
+        condition: service_healthy
+    networks:
+      - ecommerce-net
+    healthcheck:
+      test: ["CMD-SHELL",
+             "wget -qO- http://localhost:8084/actuator/health | grep -q UP || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 70s
+
+  payment-service:
+    build:
+      context: ../payment-service
+      dockerfile: Dockerfile
+    image: ecommerce/payment-service:latest
+    container_name: ecommerce-payment
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 320m
+    ports:
+      - "8085:8085"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/payment_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&createDatabaseIfNotExist=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      order-service:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+    networks:
+      - ecommerce-net
+    healthcheck:
+      test: ["CMD-SHELL",
+             "wget -qO- http://localhost:8085/actuator/health | grep -q UP || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 70s
+
+  api-gateway:
+    build:
+      context: ../api-gateway
+      dockerfile: Dockerfile
+    image: ecommerce/api-gateway:latest
+    container_name: ecommerce-gateway
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATA_REDIS_HOST: ${REDIS_HOST}
+      SPRING_DATA_REDIS_PORT: ${REDIS_PORT}
+      JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      redis:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+      product-service:
+        condition: service_healthy
+      order-service:
+        condition: service_healthy
+      cart-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+    networks:
+      - ecommerce-net
+
+# ── Volumes & Network ─────────────────────────────────────────────
+
+volumes:
+  mysql-data:
+  redis-data:
+
+networks:
+  ecommerce-net:
+    driver: bridge

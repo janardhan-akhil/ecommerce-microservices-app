@@ -1,0 +1,61 @@
+server:
+  port: 8085
+
+spring:
+  application:
+    name: payment-service
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/e-commerce_db
+    username: root
+    password: akhil
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+
+
+# ── Razorpay ─────────────────────────────────────────────────────────
+# Get your key_id and key_secret from https://dashboard.razorpay.com
+# Use test keys for development (prefix rzp_test_)
+razorpay:
+  key-id: rzp_test_SfomYduuganog6
+  key-secret: E9ct5OSuehLpYRyiRHgIVk2S
+  currency: INR
+
+# ── Eureka ────────────────────────────────────────────────────────────
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+    register-with-eureka: true
+    fetch-registry: true
+  instance:
+    hostname: localhost
+    prefer-ip-address: true
+
+# ── Feign ─────────────────────────────────────────────────────────────
+feign:
+  client:
+    config:
+      default:
+        connect-timeout: 5000
+        read-timeout: 5000
+        logger-level: full
+
+# ── Actuator ──────────────────────────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.ecommerce.paymentservice: DEBUG
+    org.springframework.web: INFO
